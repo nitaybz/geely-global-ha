@@ -351,21 +351,14 @@ class GeelyScheduledChargingSwitch(CoordinatorEntity, SwitchEntity):
 
     @property
     def is_on(self) -> bool | None:
-        # Optimistic override - stays for 60s after a fire so the slow
-        # server propagation (about 30s) doesn't flip the UI back to the
-        # old state in the meantime.
+        # Optimistic override - stays for the full 60s after a fire so
+        # the slow server propagation (about 30s) doesn't flip the UI
+        # back. Don't try to "drop early on server match" - we patch
+        # coordinator.data ourselves after a fire, which would always
+        # match and defeat the override.
         if (self._optimistic_on is not None
                 and time.time() < self._optimistic_until):
-            sched = self._sched()
-            v = sched.get("bcCycleActive")
-            srv_on = (v is not None
-                      and _truthy(v, ("true", "True", True, "1", 1)))
-            if srv_on == self._optimistic_on:
-                # Server caught up - drop the override.
-                self._optimistic_on = None
-                self._optimistic_until = 0.0
-            else:
-                return self._optimistic_on
+            return self._optimistic_on
         sched = self._sched()
         if not sched:
             return None

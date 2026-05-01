@@ -95,13 +95,12 @@ class GeelyScheduledChargingTime(CoordinatorEntity, TimeEntity):
 
     @property
     def native_value(self) -> dtime | None:
+        # Optimistic override - holds for the full 60s. Don't drop early
+        # on server match: we patch coordinator.data ourselves after a
+        # fire, so the "match" check would always succeed and defeat
+        # the guard.
         if (self._optimistic_value is not None
                 and time_mod.time() < self._optimistic_until):
-            srv = _parse_hhmm(self._sched().get(self._field))
-            if srv == self._optimistic_value:
-                self._optimistic_value = None
-                self._optimistic_until = 0.0
-                return srv
             return self._optimistic_value
         return _parse_hhmm(self._sched().get(self._field))
 
