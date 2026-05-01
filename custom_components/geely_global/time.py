@@ -120,6 +120,16 @@ class GeelyScheduledChargingTime(CoordinatorEntity, TimeEntity):
         _LOGGER.debug("Set scheduled charging %s=%s response=%s",
                       self._kind, _fmt_hhmm(value), resp)
 
+        # Patch the coordinator's in-memory schedule so the switch entity
+        # and the sibling time entity read the new value immediately,
+        # before the next coordinator poll lands. Without this, a quick
+        # "set time, then flip switch on" sequence has the switch read a
+        # stale start/end time and overwrite our update server-side.
+        data = self.coordinator.data
+        if isinstance(data, dict):
+            data.setdefault("_scheduled_charging", {})[self._field] = _fmt_hhmm(value)
+            self.async_write_ha_state()
+
         async def delayed_refresh():
             await asyncio.sleep(8)
             await self.coordinator.async_request_refresh()

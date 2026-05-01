@@ -378,6 +378,14 @@ class GeelyScheduledChargingSwitch(CoordinatorEntity, SwitchEntity):
             raise HomeAssistantError(f"Geely Scheduled Charging failure: {e}") from e
         _LOGGER.debug("Geely scheduled-charging %s response=%s", command, resp)
 
+        # Patch the coordinator's in-memory schedule so is_on flips
+        # immediately, before the next coordinator refresh lands.
+        data = self.coordinator.data
+        if isinstance(data, dict):
+            sched = data.setdefault("_scheduled_charging", {})
+            sched["bcCycleActive"] = "true" if command == "start" else "false"
+            self.async_write_ha_state()
+
         async def delayed_refresh():
             await asyncio.sleep(8)
             await self.coordinator.async_request_refresh()
