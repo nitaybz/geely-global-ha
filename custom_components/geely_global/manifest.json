@@ -1,7 +1,9 @@
 {
   "domain": "geely_global",
   "name": "Geely Global",
-  "codeowners": ["@nitaybz"],
+  "codeowners": [
+    "@nitaybz"
+  ],
   "config_flow": true,
   "dependencies": [],
   "documentation": "https://github.com/nitaybz/geely-global-ha",
@@ -11,5 +13,5 @@
     "cryptography>=41.0.0",
     "pycryptodome>=3.18.0"
   ],
-  "version": "0.4.0"
+  "version": "0.5.0"
 }
