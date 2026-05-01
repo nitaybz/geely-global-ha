@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time as time_mod
 from datetime import time as dtime
 from typing import Any
 
@@ -83,12 +84,25 @@ class GeelyScheduledChargingTime(CoordinatorEntity, TimeEntity):
             manufacturer="Geely",
             name=bundle.get("device_name") or f"Geely ({self._vin})",
         )
+        # Optimistic value: stays for 60s after a successful set so the
+        # slow Geely server propagation (about 30s for scheduled charging)
+        # doesn't briefly revert the displayed time.
+        self._optimistic_value: dtime | None = None
+        self._optimistic_until: float = 0.0
 
     def _sched(self) -> dict:
         return (self.coordinator.data or {}).get("_scheduled_charging") or {}
 
     @property
     def native_value(self) -> dtime | None:
+        if (self._optimistic_value is not None
+                and time_mod.time() < self._optimistic_until):
+            srv = _parse_hhmm(self._sched().get(self._field))
+            if srv == self._optimistic_value:
+                self._optimistic_value = None
+                self._optimistic_until = 0.0
+                return srv
+            return self._optimistic_value
         return _parse_hhmm(self._sched().get(self._field))
 
     async def async_set_value(self, value: dtime) -> None:
@@ -120,17 +134,26 @@ class GeelyScheduledChargingTime(CoordinatorEntity, TimeEntity):
         _LOGGER.debug("Set scheduled charging %s=%s response=%s",
                       self._kind, _fmt_hhmm(value), resp)
 
-        # Patch the coordinator's in-memory schedule so the switch entity
-        # and the sibling time entity read the new value immediately,
-        # before the next coordinator poll lands. Without this, a quick
-        # "set time, then flip switch on" sequence has the switch read a
-        # stale start/end time and overwrite our update server-side.
+        # Optimistic local value: holds for 60s, until the slow server
+        # propagation (about 30s) catches up.
+        self._optimistic_value = value
+        self._optimistic_until = time_mod.time() + 60
+        # Also patch the coordinator's in-memory schedule so the switch
+        # entity reads the new value when it builds its body. Without
+        # this, a quick "set time, then flip switch on" has the switch
+        # read a stale time and overwrite the server update.
         data = self.coordinator.data
         if isinstance(data, dict):
             data.setdefault("_scheduled_charging", {})[self._field] = _fmt_hhmm(value)
-            self.async_write_ha_state()
+        self.async_write_ha_state()
 
         async def delayed_refresh():
-            await asyncio.sleep(8)
+            # Server takes about 30s to propagate. Refresh at 15, 35,
+            # 55s so the UI catches up as soon as the real state lands.
+            await asyncio.sleep(15)
+            await self.coordinator.async_request_refresh()
+            await asyncio.sleep(20)
+            await self.coordinator.async_request_refresh()
+            await asyncio.sleep(20)
             await self.coordinator.async_request_refresh()
         self._hass.async_create_task(delayed_refresh())

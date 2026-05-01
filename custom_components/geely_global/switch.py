@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from typing import Any
 
 from homeassistant.components.switch import SwitchEntity
@@ -321,6 +322,10 @@ class GeelyScheduledChargingSwitch(CoordinatorEntity, SwitchEntity):
     body POST that preserves the current rbcStartTime / rbcEndTime /
     rbcTarget / rbcModel - only `command` flips. Use the time entities
     to change the schedule window.
+
+    Note: the Geely server takes ~30 seconds to reflect a scheduled-
+    charging change. We use an optimistic `is_on` for 60s after a fire
+    so the UI doesn't flicker through the stale server state.
     """
     _attr_has_entity_name = True
     _attr_icon = "mdi:clock-time-four"
@@ -338,15 +343,38 @@ class GeelyScheduledChargingSwitch(CoordinatorEntity, SwitchEntity):
             manufacturer="Geely",
             name=bundle.get("device_name") or f"Geely ({self._vin})",
         )
+        self._optimistic_on: bool | None = None
+        self._optimistic_until: float = 0.0
 
     def _sched(self) -> dict:
         return (self.coordinator.data or {}).get("_scheduled_charging") or {}
 
     @property
     def is_on(self) -> bool | None:
-        v = self._sched().get("bcCycleActive")
-        if v is None:
+        # Optimistic override - stays for 60s after a fire so the slow
+        # server propagation (about 30s) doesn't flip the UI back to the
+        # old state in the meantime.
+        if (self._optimistic_on is not None
+                and time.time() < self._optimistic_until):
+            sched = self._sched()
+            v = sched.get("bcCycleActive")
+            srv_on = (v is not None
+                      and _truthy(v, ("true", "True", True, "1", 1)))
+            if srv_on == self._optimistic_on:
+                # Server caught up - drop the override.
+                self._optimistic_on = None
+                self._optimistic_until = 0.0
+            else:
+                return self._optimistic_on
+        sched = self._sched()
+        if not sched:
             return None
+        v = sched.get("bcCycleActive")
+        # Server only includes bcCycleActive when the schedule is
+        # active. If schedule data is present but bcCycleActive is
+        # missing, the schedule is OFF, not "unknown".
+        if v is None:
+            return False
         return _truthy(v, ("true", "True", True, "1", 1))
 
     async def async_turn_on(self, **_: Any) -> None:
@@ -378,16 +406,29 @@ class GeelyScheduledChargingSwitch(CoordinatorEntity, SwitchEntity):
             raise HomeAssistantError(f"Geely Scheduled Charging failure: {e}") from e
         _LOGGER.debug("Geely scheduled-charging %s response=%s", command, resp)
 
-        # Patch the coordinator's in-memory schedule so is_on flips
-        # immediately, before the next coordinator refresh lands.
+        # Set the optimistic flag so is_on returns the new state for up
+        # to 60s. The Geely server takes about 30s to propagate scheduled
+        # charging changes, so a short refresh window won't see the
+        # update yet.
+        self._optimistic_on = (command == "start")
+        self._optimistic_until = time.time() + 60
+        # Patch the coordinator's in-memory schedule too so peer entities
+        # (the time entities) see the same state.
         data = self.coordinator.data
         if isinstance(data, dict):
             sched = data.setdefault("_scheduled_charging", {})
             sched["bcCycleActive"] = "true" if command == "start" else "false"
-            self.async_write_ha_state()
+        self.async_write_ha_state()
 
         async def delayed_refresh():
-            await asyncio.sleep(8)
+            # First peek at 15s. Real server confirmation usually lands
+            # at 30 to 35s, but doing it twice catches it as soon as
+            # possible without waiting the full 90s coordinator interval.
+            await asyncio.sleep(15)
+            await self.coordinator.async_request_refresh()
+            await asyncio.sleep(20)
+            await self.coordinator.async_request_refresh()
+            await asyncio.sleep(20)
             await self.coordinator.async_request_refresh()
         self._hass.async_create_task(delayed_refresh())
 
