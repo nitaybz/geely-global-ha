@@ -28,7 +28,3 @@ jobs:
         uses: hacs/action@main
         with:
           category: integration
-          # `brands` is ignored until the PR to home-assistant/brands is
-          # merged. The integration works without it; users see a
-          # placeholder icon until then.
-          ignore: brands
