@@ -2,7 +2,7 @@
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Validate](https://github.com/nitaybz/geely-ex5-ha/actions/workflows/validate.yml/badge.svg)](https://github.com/nitaybz/geely-ex5-ha/actions/workflows/validate.yml)
+[![Validate](https://github.com/nitaybz/geely-global-ha/actions/workflows/validate.yml/badge.svg)](https://github.com/nitaybz/geely-global-ha/actions/workflows/validate.yml)
 
 A custom Home Assistant integration for vehicles using the **Geely Global / Geely International** mobile app. Tested on the **Geely EX5** but should work on most Geely-family EVs that use the same backend.
 
@@ -29,7 +29,7 @@ The integration is **capability driven**: at setup it queries the per-VIN featur
 
 1. In Home Assistant, open **HACS** and go to **Integrations**.
 2. Click the three-dot menu (top right) and pick **Custom repositories**.
-3. Add `https://github.com/nitaybz/geely-ex5-ha` with category **Integration**.
+3. Add `https://github.com/nitaybz/geely-global-ha` with category **Integration**.
 4. Search for **Geely Global** and install.
 5. Restart Home Assistant.
 

@@ -6,4 +6,4 @@ Provides locks, climate, switches, selects, covers, buttons, sensors, binary sen
 
 The integration is capability driven: it queries the per-VIN feature catalog and only exposes entities for the features your specific trim supports.
 
-See [README](https://github.com/nitaybz/geely-ex5-ha) for full setup and entity list.
+See [README](https://github.com/nitaybz/geely-global-ha) for full setup and entity list.

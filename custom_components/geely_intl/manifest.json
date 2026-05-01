@@ -4,9 +4,9 @@
   "codeowners": ["@nitaybz"],
   "config_flow": true,
   "dependencies": [],
-  "documentation": "https://github.com/nitaybz/geely-ex5-ha",
+  "documentation": "https://github.com/nitaybz/geely-global-ha",
   "iot_class": "cloud_polling",
-  "issue_tracker": "https://github.com/nitaybz/geely-ex5-ha/issues",
+  "issue_tracker": "https://github.com/nitaybz/geely-global-ha/issues",
   "requirements": [
     "cryptography>=41.0.0",
     "pycryptodome>=3.18.0"
