@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Working artifacts (research, reverse engineering, captures).
+# Kept locally on the maintainer's machine but not published.
+.claude/
+poc/
+apk/
+apk_decompiled/
+captures/
+certs/
+frida/
+frida_agent/
+frida_gadget/
+ghidra_proj/
+qiling_rootfs/
+reference/
+brands/
+
+# Native libraries extracted from the Android app for analysis.
+libComUtil.so
+libkadp.so
+libkwsdataenc.so
+libwhite-box.so
+
+# Build / hash directories
+0a2ba3d43fe2bbd00279e90b800942d3f7ad5226499afb3ea1346e75bb2039c7/
+
+# Internal status / handoff documents
+STATUS.md
+*.bak.*
+*.bak
+docs/SESSION_*_HANDOFF.md
+docs/NEXT_SESSION_PROMPT.md
+docs/IPHONE_REFRESH_CAPTURE_PROTOCOL.md
+docs/captured_iov_flow.json
+docs/AVD_CAPTURE_GUIDE.md
