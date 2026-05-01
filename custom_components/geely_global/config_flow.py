@@ -48,7 +48,7 @@ _LOGGER = logging.getLogger(__name__)
 
 
 def _storage_paths(hass, vin: str) -> tuple[str, str]:
-    base = os.path.join(hass.config.path(".storage"), "geely_intl", vin)
+    base = os.path.join(hass.config.path(".storage"), "geely_global", vin)
     return os.path.join(base, "cert.pem"), os.path.join(base, "key.pem")
 
 

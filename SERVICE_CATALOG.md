@@ -198,7 +198,7 @@ State: `_state.parkComfortState` (1 = on).
 
 ### Steering wheel heat (status field exists, command unverified)
 
-The capability catalog declares `steel_wheel_heating: "true"` under `combined_climate_control` and the status field `climateStatus.steerWhlHeatingSts` exists. The mobile-app UI on the EX5 trim does not expose a button. Probe candidates from `geely_intl.fire_control` in Developer Tools:
+The capability catalog declares `steel_wheel_heating: "true"` under `combined_climate_control` and the status field `climateStatus.steerWhlHeatingSts` exists. The mobile-app UI on the EX5 trim does not expose a button. Probe candidates from `geely_global.fire_control` in Developer Tools:
 - `RCE_2 / start / [{rce.steel_wheel_heating: "true"}, {rce.level: "3"}]`
 - `RCE_2 / start / [{rce.swh: "true"}, {rce.level: "3"}]`
 - Adding a `bw` field to a `bizType=7` body

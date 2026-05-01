@@ -35,7 +35,7 @@ The integration is **capability driven**: at setup it queries the per-VIN featur
 
 ### Manual
 
-1. Copy the `custom_components/geely_intl/` folder into your Home Assistant `config/custom_components/` directory.
+1. Copy the `custom_components/geely_global/` folder into your Home Assistant `config/custom_components/` directory.
 2. Restart Home Assistant.
 
 ## Setup

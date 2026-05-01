@@ -1,5 +1,5 @@
 {
-  "domain": "geely_intl",
+  "domain": "geely_global",
   "name": "Geely Global",
   "codeowners": ["@nitaybz"],
   "config_flow": true,

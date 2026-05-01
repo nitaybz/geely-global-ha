@@ -295,7 +295,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 def _register_debug_service(hass: HomeAssistant) -> None:
-    """Register `geely_intl.fire_control` once. Idempotent.
+    """Register `geely_global.fire_control` once. Idempotent.
 
     Lets you fire any serviceId+params from Developer Tools → Services
     while iterating on un-mapped controls. Logs the response at WARNING
@@ -353,7 +353,7 @@ def _register_debug_service(hass: HomeAssistant) -> None:
         )
 
     hass.services.async_register(DOMAIN, "fire_control", _handle, schema=schema)
-    _LOGGER.info("Registered geely_intl.fire_control debug service")
+    _LOGGER.info("Registered geely_global.fire_control debug service")
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -377,5 +377,5 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         new_data["device_idfa"] = idfa
         new_data["device_idfv"] = idfv
     hass.config_entries.async_update_entry(entry, data=new_data, version=2)
-    _LOGGER.info("Migrated geely_intl entry %s to v2", entry.entry_id)
+    _LOGGER.info("Migrated geely_global entry %s to v2", entry.entry_id)
     return True

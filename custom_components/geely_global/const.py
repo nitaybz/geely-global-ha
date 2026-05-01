@@ -5,7 +5,7 @@ ServiceId catalog and parameter shapes are AVD-Frida-verified
 Global app's network calls captured live via OkHttp interception.
 """
 
-DOMAIN = "geely_intl"
+DOMAIN = "geely_global"
 
 # App-level credentials - same across all users on the EU region.
 APP_ID     = "GEELYE245"
