@@ -3,7 +3,7 @@
 GeeTest BehaviorVerification v4 slide-puzzle solver - adapted for Geely's
 self-hosted deployment at captcha4.geely.com.
 
-CRYPTO SPEC (reverse-engineered from /tmp/captcha_js_deob.js):
+CRYPTO SPEC:
   - Algorithm:    SM2 ECIES per GM/T 0003.4-2012 (Chinese national standard)
   - Curve:        sm2p256v1
   - KDF:          SM3-based, 32-bit BE counter starting at 1
@@ -324,7 +324,7 @@ def build_inner_payload(load: LoadResponse, set_left: int, passtime_ms: int, *, 
     """The JSON object that gets SM2-encrypted into `w`.
 
     Field order, names and shape are taken from a real captured plaintext
-    produced by the actual widget (see /tmp/real_verify_body.json):
+    produced by the actual widget:
 
         {"serial":"<wz value>",
          "env":"<URI-encoded JSON of {roe: {...}}>",

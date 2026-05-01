@@ -135,41 +135,16 @@ SERVICE_SCHEDULED_CHARGING = SERVICE_CHARGING
 # Returns the per-vehicle feature catalog. Used to build dynamic entities.
 CAPABILITY_PATH = "/geelyTCAccess/tcservices/capability"
 
-# --- Legacy aliases (kept to avoid stale imports) ---
-# Old guesses that were wrong - still imported by some modules. Map them
-# to the verified names so old code paths don't blow up while we migrate.
-SERVICE_CLIMATE_AC    = SERVICE_CLIMATE      # "RCC" was old; now RCE_2
-SERVICE_CLIMATE_TEMP  = SERVICE_CLIMATE      # was "RCT"; same RCE_2 now
-SERVICE_CLIMATE_TEMP_PARAM_KEY = RCE_KEY_TEMP
-SERVICE_CLIMATE_TEMP_CMD = SERVICE_CLIMATE
-SERVICE_CLIMATE_DEFROST = SERVICE_CLIMATE    # was "RFD"
-SERVICE_RAPID_WARMING   = "rapid_warming"    # sentinel - handled via charge-server path
-SERVICE_RAPID_COOLING   = "rapid_cooling"    # sentinel - handled via charge-server path
-SERVICE_SEAT_HEAT       = SERVICE_CLIMATE    # was "RSH"
-SERVICE_SEAT_VENT       = SERVICE_CLIMATE    # was "RSV"
-SEAT_ID_DRIVER          = SEAT_FRONT_LEFT
-SEAT_ID_PASSENGER       = SEAT_FRONT_RIGHT
-
 # === Climate entity defaults (overridden by capability if available) ===
-CLIMATE_MIN_TEMP_C   = 15.5
-CLIMATE_MAX_TEMP_C   = 28.5
-CLIMATE_TEMP_STEP_C  = 0.5
-CLIMATE_DURATION_MIN = 15
-CLIMATE_SW_DURATION_MIN = 15
-CLIMATE_SEAT_DURATION_MIN = 15
-CLIMATE_SEAT_LEVELS  = ["Off", "Low", "Medium", "High"]   # 0..3
+CLIMATE_MIN_TEMP_C  = 15.5
+CLIMATE_MAX_TEMP_C  = 28.5
+CLIMATE_TEMP_STEP_C = 0.5
+CLIMATE_SEAT_LEVELS = ["Off", "Low", "Medium", "High"]   # index = level
 
 # === Climate preset names ===
-# HA uses the preset_mode value as-is in the dropdown UI, so we use
-# the user-facing labels directly. PRESET_NONE stays lowercase because
-# HA's frontend has built-in "None" rendering for the "no preset" state.
+# HA uses the preset_mode value as-is in the dropdown UI, so user-facing
+# labels go directly here. PRESET_NONE stays lowercase because HA's
+# frontend has built-in "None" rendering for the "no preset" state.
 PRESET_NONE          = "none"
 PRESET_RAPID_WARMING = "Rapid Warming"
 PRESET_RAPID_COOLING = "Rapid Cooling"
-# Legacy / unused (kept for backward import compatibility)
-PRESET_DEFROST       = "defrost"
-PRESET_VENTILATE     = "ventilate"
-PRESET_G_CLEAN       = "g_clean"
-PRESET_LIST = [
-    PRESET_NONE, PRESET_RAPID_WARMING, PRESET_RAPID_COOLING,
-]
