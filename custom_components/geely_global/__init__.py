@@ -217,6 +217,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     _SUCCESS_CODES = {1000, "1000", 10000000, "10000000", None}
 
     async def _async_update():
+        # Best-effort: ask the car to upload fresh GPS before we read status.
+        # The Geely app fires this on every map-view tick (~10-30s); HA polls
+        # every SCAN_INTERVAL_SECONDS so this is one PAI per cycle. Failure
+        # here is non-fatal — we still serve the cached snapshot.
+        try:
+            await hass.async_add_executor_job(api.request_position_refresh)
+        except GeelyAuthError as e:
+            raise ConfigEntryAuthFailed(str(e)) from e
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.debug("position-refresh PAI non-fatal failure: %s", e)
         try:
             resp = await hass.async_add_executor_job(api.vehicle_status)
         except GeelyAuthError as e:

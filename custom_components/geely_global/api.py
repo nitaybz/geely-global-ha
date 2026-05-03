@@ -353,9 +353,40 @@ class GeelyApi:
         return j
 
     def vehicle_status(self) -> dict:
-        """GET full vehicle status."""
-        path = f"/remote-control/vehicle/status/{self.vin}?vin={self.vin}&userId={self.user_id}"
+        """GET full vehicle status with the same query the Geely app uses on
+        map-view open: `?userId=&latest=&target=`. The empty `latest=` and
+        `target=` flags signal the cloud to return the most recently uploaded
+        snapshot (incl. fresh GPS if the car just pushed it). Without those
+        flags the gateway serves an older cached snapshot for the position
+        field. AVD-Frida confirmed (2026-05-03)."""
+        path = (f"/remote-control/vehicle/status/{self.vin}"
+                f"?userId={self.user_id}&latest=&target=")
         return self._authed_apis_call("GET", path, b"")
+
+    def request_position_refresh(self) -> dict:
+        """Fire PAI/operation:4/pai:1 — the Geely app fires this every time the
+        map view opens to wake the car and request a fresh GPS upload. After
+        the cloud ACKs (code=1000), wait a few seconds then re-fetch
+        vehicle_status with `?...&latest=&target=` to read the new position.
+        AVD-Frida confirmed (2026-05-03)."""
+        body = {
+            "command": "start",
+            "creator": "tc",
+            "latest": True,
+            "serviceId": "PAI",
+            "serviceParameters": [
+                {"key": "operation", "value": "4"},
+                {"key": "pai", "value": "1"},
+            ],
+            "timestamp": str(int(time.time() * 1000)),
+            "userId": str(self.user_id),
+        }
+        path = f"/remote-control/vehicle/telematics/{self.vin}"
+        status, resp = self._mtls_send(
+            "apis.ecloudeu.com", "PUT", path, json.dumps(body).encode(),
+            extra_headers=self._headers_with_jwt(),
+        )
+        return json.loads(resp)
 
     def vehicle_status_state(self) -> dict:
         path = f"/remote-control/vehicle/status/state/{self.vin}"
