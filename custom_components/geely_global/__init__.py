@@ -1,7 +1,9 @@
 """Geely (international) Home Assistant integration."""
 from __future__ import annotations
 
+import asyncio
 import logging
+import socket
 from datetime import timedelta
 
 import voluptuous as vol
@@ -216,25 +218,64 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     _SUCCESS_CODES = {1000, "1000", 10000000, "10000000", None}
 
+    # Transient network errors that warrant retry rather than failing the poll.
+    # gaierror = DNS lookup failure (Errno -3 EAI_AGAIN); the rest are typical
+    # cloud-API transient hiccups.
+    _TRANSIENT_EXC = (socket.gaierror, ConnectionError, TimeoutError, OSError)
+
+    async def _call_with_retry(func, *args, attempts=3, delay=2.0):
+        """Run an executor job with retry on transient network errors. Auth
+        failures bubble immediately; non-transient exceptions also bubble."""
+        last_exc: Exception | None = None
+        for i in range(attempts):
+            try:
+                return await hass.async_add_executor_job(func, *args)
+            except GeelyAuthError:
+                raise
+            except _TRANSIENT_EXC as e:
+                last_exc = e
+                _LOGGER.debug("transient %s on %s (attempt %d/%d): %s",
+                              type(e).__name__, getattr(func, "__name__", "?"),
+                              i + 1, attempts, e)
+                if i + 1 < attempts:
+                    await asyncio.sleep(delay)
+        assert last_exc is not None
+        raise last_exc
+
+    # Closure state: tolerate up to N consecutive failures before marking
+    # entities unavailable. With SCAN_INTERVAL_SECONDS=90 and N=2 we need
+    # ~3min of sustained failure before HA reports unavailable.
+    _FAILURE_TOLERANCE = 2
+    fail_state = {"consecutive": 0}
+
     async def _async_update():
         # Best-effort: ask the car to upload fresh GPS before we read status.
         # The Geely app fires this on every map-view tick (~10-30s); HA polls
         # every SCAN_INTERVAL_SECONDS so this is one PAI per cycle. Failure
         # here is non-fatal — we still serve the cached snapshot.
         try:
-            await hass.async_add_executor_job(api.request_position_refresh)
+            await _call_with_retry(api.request_position_refresh)
         except GeelyAuthError as e:
             raise ConfigEntryAuthFailed(str(e)) from e
         except Exception as e:  # noqa: BLE001
             _LOGGER.debug("position-refresh PAI non-fatal failure: %s", e)
         try:
-            resp = await hass.async_add_executor_job(api.vehicle_status)
+            resp = await _call_with_retry(api.vehicle_status)
         except GeelyAuthError as e:
             # Trigger HA's reauth flow - the user will see a "Reconfigure"
             # prompt. Most common cause: the iPhone (or another client) re-
             # authenticated and the server invalidated our cidpsso token.
             raise ConfigEntryAuthFailed(str(e)) from e
         except Exception as e:  # noqa: BLE001
+            fail_state["consecutive"] += 1
+            prev = coordinator.data if coordinator is not None else None
+            if fail_state["consecutive"] <= _FAILURE_TOLERANCE and isinstance(prev, dict):
+                _LOGGER.warning(
+                    "vehicle_status failed (%d/%d consecutive); reusing last "
+                    "snapshot: %s", fail_state["consecutive"],
+                    _FAILURE_TOLERANCE, e,
+                )
+                return prev
             raise UpdateFailed(f"vehicle_status: {e}") from e
         code = resp.get("code")
         data = resp.get("data")
@@ -250,7 +291,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # for parking_comfort, scheduled_charging, valet/camping/sentry
         # modes etc. that aren't in the primary status payload.
         try:
-            state_resp = await hass.async_add_executor_job(api.vehicle_status_state)
+            state_resp = await _call_with_retry(api.vehicle_status_state)
             if state_resp.get("code") in _SUCCESS_CODES and isinstance(state_resp.get("data"), dict):
                 data["_state"] = state_resp["data"]
         except GeelyAuthError as e:
@@ -261,11 +302,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # rbcStartTime/rbcEndTime/bcCycleActive - needed for the schedule
         # entities. Best-effort: missing on next refresh just shows None.
         try:
-            sc = await hass.async_add_executor_job(api.charge_server_get, "6")
+            sc = await _call_with_retry(api.charge_server_get, "6")
             if sc.get("code") in _SUCCESS_CODES and isinstance(sc.get("data"), dict):
                 data["_scheduled_charging"] = sc["data"]
         except Exception as e:  # noqa: BLE001
             _LOGGER.debug("scheduled-charging fetch non-fatal failure: %s", e)
+        fail_state["consecutive"] = 0
         return data
 
     coordinator = DataUpdateCoordinator(
