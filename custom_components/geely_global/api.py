@@ -422,21 +422,29 @@ class GeelyApi:
 
     def scheduled_charging_set(self, *, command: str, start_time: str,
                                 end_time: str, rbc_target: str = "2",
-                                rbc: str = "2", rbc_model: str = "") -> dict:
+                                rbc: str = "2", charge_model: str = "0") -> dict:
         """Set scheduled charging. command="start" enables, "stop" disables.
 
-        AVD-verified body shape (bizType=6). Pushes the FULL state every
-        time - to change just times while keeping ON, pass command="start"
-        with the new times.
+        Body shape for bizType=6 (charge-server). The charge-model write key
+        is `chargeModel` - NOT `rbcModel`. `rbcModel` is only the read-only
+        echo the GET returns; sending it as the write key puts the server in
+        a branch that rejects a populated window with
+        `illegal request parameter: rbcStartTime must be empty`. With
+        `chargeModel` present, `rbcStartTime`/`rbcEndTime` are the *writable*
+        schedule window and must be populated (sending them empty then fails
+        with `rbcEndTime is missing`). The same body shape serves both
+        start (enable + arm at the window) and stop (disable); `command`
+        selects the forwarded operation (1/0). Verified live 2026-05-31:
+        start -> op=1 + forwarded rbc.startTime, stop -> op=0.
         """
         body = {
             "bizType": "6",
             "command": command,
+            "chargeModel": charge_model,
             "endTime": "",
             "pin": self.vin,
             "rbc": rbc,
             "rbcEndTime": end_time,
-            "rbcModel": rbc_model,
             "rbcStartTime": start_time,
             "rbcTarget": rbc_target,
             "scheduledTime": "",

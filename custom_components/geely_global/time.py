@@ -114,7 +114,8 @@ class GeelyScheduledChargingTime(CoordinatorEntity, TimeEntity):
         is_on = _truthy(sched.get("bcCycleActive"))
         command = "start" if is_on else "stop"
         rbc_target = sched.get("rbcTarget") or "2"
-        rbc_model = sched.get("rbcModel") or ""
+        # GET echoes `rbcModel`; SET writes it as `chargeModel`.
+        charge_model = sched.get("rbcModel") or "0"
         try:
             resp = await self._hass.async_add_executor_job(
                 lambda: self._api.scheduled_charging_set(
@@ -122,7 +123,7 @@ class GeelyScheduledChargingTime(CoordinatorEntity, TimeEntity):
                     start_time=new_start,
                     end_time=new_end,
                     rbc_target=rbc_target,
-                    rbc_model=rbc_model,
+                    charge_model=charge_model,
                 )
             )
         except GeelyControlError as e:

@@ -157,31 +157,31 @@ For rapid cooling, swap `heat: [...]` for `ventilation: [...]`, set `temp: "15.5
 
 ### Scheduled charging (charge-server POST, `bizType=6`)
 
-State is readable via `GET ?bizType=6`:
+State is readable via `GET ?bizType=6` (the model echoes back as `rbcModel`):
 
 ```json
 {
-  "rbcStartTime": "23:00",
-  "rbcEndTime": "07:00",
+  "rbcStartTime": "23:30",
+  "rbcEndTime": "7:0",
   "rbcTarget": "2",
-  "rbcModel": "",
+  "rbcModel": "0",
   "bcCycleActive": "true",
   "bizType": 6,
   "id": 779515
 }
 ```
 
-Set / toggle:
+Set / toggle (verified live 2026-05-31):
 
 ```json
 {
   "bizType": "6",
   "command": "start" | "stop",
+  "chargeModel": "0",
   "rbc": "2",
   "rbcStartTime": "HH:MM",
   "rbcEndTime": "HH:MM",
   "rbcTarget": "2",
-  "rbcModel": "",
   "pin": "<vin>",
   "vin": "<vin>",
   "sessionId": "",
@@ -189,6 +189,17 @@ Set / toggle:
   "endTime": ""
 }
 ```
+
+**Critical: the write key is `chargeModel`, NOT `rbcModel`.** `rbcModel` is
+only the read-only echo the GET returns. If you send `rbcModel` as the
+write key, the server takes a branch that rejects a populated window with
+`illegal request parameter: rbcStartTime must be empty` (the long-standing
+bug). With `chargeModel` present, `rbcStartTime`/`rbcEndTime` are the
+*writable* schedule window and must be **populated** on both start and stop
+(empty → `rbcEndTime is missing`). `command` selects the forwarded
+operation: `start` → enable + arm at the window (`operation:1`, forwarded
+`rbc.startTime`), `stop` → disable (`operation:0`). The same body shape
+serves both. Times accept unpadded `H:M` or padded `HH:MM`.
 
 ### Parking Comfort (charge-server POST, `bizType=4`)
 

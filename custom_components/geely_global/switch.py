@@ -381,7 +381,10 @@ class GeelyScheduledChargingSwitch(CoordinatorEntity, SwitchEntity):
         start = sched.get("rbcStartTime") or "23:00"
         end = sched.get("rbcEndTime") or "07:00"
         rbc_target = sched.get("rbcTarget") or "2"
-        rbc_model = sched.get("rbcModel") or ""
+        # The GET echoes the model as `rbcModel`; the SET writes it back as
+        # `chargeModel` (see api.scheduled_charging_set). "0" is the value
+        # the EX5 reports.
+        charge_model = sched.get("rbcModel") or "0"
         try:
             resp = await self._hass.async_add_executor_job(
                 lambda: self._api.scheduled_charging_set(
@@ -389,7 +392,7 @@ class GeelyScheduledChargingSwitch(CoordinatorEntity, SwitchEntity):
                     start_time=start,
                     end_time=end,
                     rbc_target=rbc_target,
-                    rbc_model=rbc_model,
+                    charge_model=charge_model,
                 )
             )
         except GeelyControlError as e:
