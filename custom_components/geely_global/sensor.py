@@ -9,7 +9,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
+from homeassistant.components.sensor import (
+    SensorDeviceClass,
+    SensorEntity,
+    SensorStateClass,
+)
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     PERCENTAGE,
@@ -102,6 +106,38 @@ SENSOR_SPECS: tuple[tuple, ...] = (
     ("distance_to_service", "Distance To Service",  (*_MAINT, "distanceToService"),                    UnitOfLength.KILOMETERS,          SensorDeviceClass.DISTANCE,    "int",   None),
 )
 
+# Long-term statistics only exist for sensors that declare a state_class:
+# without one the recorder purges the history after ~10 days and the sensor
+# never shows up in the statistics graphs. Nothing warns about it.
+# The three mapped sensors (engine_state, park_brake, charger_connected) are
+# absent on purpose - they report a label, not a number, and a state class on a
+# textual sensor is meaningless (and outright rejected by HA if they ever gain
+# device_class ENUM).
+_STATE_CLASSES: dict[str, SensorStateClass] = {
+    "battery":             SensorStateClass.MEASUREMENT,
+    "range":               SensorStateClass.MEASUREMENT,
+    # The odometer and the trip meter are counters, not readings. As plain
+    # measurements HA would average the dashboard number, which says nothing;
+    # TOTAL_INCREASING makes it report distance driven per period, and it
+    # absorbs the trip meter being reset to zero as the start of a new cycle.
+    "total_mileage":       SensorStateClass.TOTAL_INCREASING,
+    "trip_meter":          SensorStateClass.TOTAL_INCREASING,
+    "interior_temp":       SensorStateClass.MEASUREMENT,
+    "exterior_temp":       SensorStateClass.MEASUREMENT,
+    "speed":               SensorStateClass.MEASUREMENT,
+    "time_to_full_min":    SensorStateClass.MEASUREMENT,
+    "12v_battery":         SensorStateClass.MEASUREMENT,
+    "12v_voltage":         SensorStateClass.MEASUREMENT,
+    "avg_consumption":     SensorStateClass.MEASUREMENT,
+    "avg_speed":           SensorStateClass.MEASUREMENT,
+    "tire_pressure_fl":    SensorStateClass.MEASUREMENT,
+    "tire_pressure_fr":    SensorStateClass.MEASUREMENT,
+    "tire_pressure_rl":    SensorStateClass.MEASUREMENT,
+    "tire_pressure_rr":    SensorStateClass.MEASUREMENT,
+    "days_to_service":     SensorStateClass.MEASUREMENT,
+    "distance_to_service": SensorStateClass.MEASUREMENT,
+}
+
 # Sensors marked diagnostic appear in HA's collapsed "Diagnostic" section
 # on the device page rather than the main entity list.
 _DIAGNOSTIC_KEYS: set[str] = {
@@ -166,6 +202,9 @@ class GeelySensor(CoordinatorEntity, SensorEntity):
             self._attr_native_unit_of_measurement = unit
         if device_class is not None:
             self._attr_device_class = device_class
+        state_class = _STATE_CLASSES.get(key)
+        if state_class is not None:
+            self._attr_state_class = state_class
         icon = _SENSOR_ICONS.get(key)
         if icon:
             self._attr_icon = icon
