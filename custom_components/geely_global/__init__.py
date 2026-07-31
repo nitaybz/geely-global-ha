@@ -17,21 +17,22 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from . import api as geely_api
 from .api import GeelyApi, GeelyAuthError
 from .const import (
-    APP_ID,
-    APP_SECRET,
     CLIENT_ID,
     CONF_CERT_PATH,
     CONF_CIDPSSO_TOKEN,
     CONF_DEVICE_ID,
     CONF_KEY_PATH,
+    CONF_REGION,
     CONF_USER_ID,
     CONF_VEHICLE_MODEL_CODE,
     CONF_VEHICLE_NICKNAME,
     CONF_VEHICLE_SERIES,
     CONF_VIN,
+    DEFAULT_REGION,
     DOMAIN,
     SCAN_INTERVAL_SECONDS,
     SERIES_TO_FRIENDLY_NAME,
+    region_config,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -133,12 +134,15 @@ async def _maybe_refetch_vehicle_metadata(hass: HomeAssistant, entry: ConfigEntr
     have_series = entry.data.get(CONF_VEHICLE_SERIES) or entry.data.get(CONF_VEHICLE_MODEL_CODE)
     if have and have_series:
         return
+    app_host = region_config(entry.data.get(CONF_REGION) or DEFAULT_REGION)["app_host"]
     try:
         all_v = await hass.async_add_executor_job(
-            geely_api.list_vehicles,
-            entry.data.get(CONF_CIDPSSO_TOKEN),
-            entry.data.get(CONF_USER_ID),
-            entry.data.get("country_code", "IL"),
+            lambda: geely_api.list_vehicles(
+                entry.data.get(CONF_CIDPSSO_TOKEN),
+                entry.data.get(CONF_USER_ID),
+                entry.data.get("country_code", "IL"),
+                app_host=app_host,
+            )
         )
     except Exception as e:  # noqa: BLE001
         _LOGGER.debug("metadata refetch failed (non-fatal): %s", e)
@@ -203,8 +207,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         or "E245-J1"
     )
     api = GeelyApi(
-        app_id=APP_ID,
-        app_secret=APP_SECRET,
+        region=d.get(CONF_REGION) or DEFAULT_REGION,
         user_id=d[CONF_USER_ID],
         vin=d[CONF_VIN],
         cidpsso_token=d[CONF_CIDPSSO_TOKEN],

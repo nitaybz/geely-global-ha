@@ -7,9 +7,49 @@ Global app's network calls captured live via OkHttp interception.
 
 DOMAIN = "geely_global"
 
-# App-level credentials - same across all users on the EU region.
-APP_ID     = "GEELYE245"
-APP_SECRET = "48d6fff3ea19447bbf6f3ed76a608ff9"
+# Per-region backend configuration.
+#
+# The region is derived from the login response (`edgeInfo.code` /
+# `tspInfo[].serviceRegion`), NOT from the country code the user typed: a
+# vehicle's telematics region can differ from the account's country (e.g. a
+# Brazil account whose EX2 is registered in the NA region).
+#
+# Each region has its own app-level credentials (`app_id`/`app_secret`, used to
+# sign requests) and its own backend hosts. `cert_host` is the single-auth host
+# for device-cert provisioning, `control_host` the mutual-TLS host for control
+# commands, and `app_host` the cidpsso/cidpcar host for OAuth code exchange and
+# the vehicle list. The host suffixes come from the app's `assets/host.txt`.
+REGIONS: dict[str, dict[str, str]] = {
+    "EU": {
+        "app_id":       "GEELYE245",
+        "app_secret":   "48d6fff3ea19447bbf6f3ed76a608ff9",
+        "cert_host":    "api.ecloudeu.com",
+        "control_host": "apis.ecloudeu.com",
+        "app_host":     "m-lcmsam-eu.geely.com",
+    },
+    "NA": {
+        "app_id":       "GEELYUS",
+        "app_secret":   "cd3a278dc4e844ca8a1c22f7b2447a0e",
+        "cert_host":    "api.ecloudus.com",
+        "control_host": "apis.ecloudus.com",
+        "app_host":     "m-lcmsam-us.geely.com",
+    },
+    # APAC and SA hosts are known from the app's assets/host.txt, but their
+    # app_id/app_secret have not been captured yet. Fill these in when known:
+    #   "APAC": {"cert_host": "api.ecloudkr.com", "control_host": "apis.ecloudkr.com",
+    #            "app_host": "m-lcmsam-kr.geely.com", "app_id": ..., "app_secret": ...},
+    #   "SA":   {"cert_host": "tsp-geely-api-sa.xcloudsvc.com",
+    #            "control_host": "tsp-geely-apis-sa.xcloudsvc.com",
+    #            "app_host": "m-lcmsam-sa.geely.com", "app_id": ..., "app_secret": ...},
+}
+
+DEFAULT_REGION = "EU"
+
+
+def region_config(region: str | None) -> dict[str, str]:
+    """Resolve a region code to its backend config, falling back to
+    DEFAULT_REGION for unknown/unconfigured regions."""
+    return REGIONS.get((region or DEFAULT_REGION).upper(), REGIONS[DEFAULT_REGION])
 
 # Vehicle / client metadata sent in headers during control commands.
 CLIENT_ID      = "OOGLE0000APPE64ARM64264T31485278"
@@ -23,6 +63,7 @@ JWT_REFRESH_SECONDS = 6500   # JWT lasts 7200s - refresh a bit early
 # ConfigEntry data keys
 CONF_EMAIL              = "email"
 CONF_COUNTRY_CODE       = "country_code"
+CONF_REGION             = "region"
 CONF_CIDPSSO_TOKEN      = "cidpsso_token"
 CONF_USER_ID            = "user_id"
 CONF_VIN                = "vin"

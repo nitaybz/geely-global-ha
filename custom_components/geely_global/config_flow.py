@@ -24,8 +24,6 @@ from homeassistant.data_entry_flow import FlowResult
 
 from . import api as geely_api
 from .const import (
-    APP_ID,
-    APP_SECRET,
     CONF_CERT_PATH,
     CONF_CIDPSSO_TOKEN,
     CONF_COUNTRY_CODE,
@@ -34,6 +32,7 @@ from .const import (
     CONF_DEVICE_IDFV,
     CONF_EMAIL,
     CONF_KEY_PATH,
+    CONF_REGION,
     CONF_USER_ID,
     CONF_VEHICLE_COLOR,
     CONF_VEHICLE_MODEL_CODE,
@@ -42,6 +41,7 @@ from .const import (
     CONF_VEHICLE_SERIES,
     CONF_VIN,
     DOMAIN,
+    region_config,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -70,6 +70,7 @@ class GeelyIntlConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._cidpsso_token: str | None = None
         self._user_id: str | None = None
         self._vehicles: list[dict] = []
+        self._login_data: dict = {}
         self._idfa: str | None = None
         self._idfv: str | None = None
         # Set when this flow is a re-auth. We update the existing entry's
@@ -142,17 +143,22 @@ class GeelyIntlConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     errors["code"] = "invalid_code"
                 else:
                     data = login_resp.get("data") or {}
+                    self._login_data = data
                     self._cidpsso_token = data.get("token")
                     self._user_id = data.get("userId") or data.get("id")
                     if not self._cidpsso_token or not self._user_id:
                         errors["base"] = "unknown"
                     else:
+                        # The vehicle list lives on the account's edge region
+                        # (from the login response), not the country code.
+                        account_region = geely_api.region_from_login(data)
+                        app_host = region_config(account_region)["app_host"]
                         # Fetch vehicles, drop ones already configured
                         try:
                             all_v = await self.hass.async_add_executor_job(
                                 lambda: geely_api.list_vehicles(
                                     self._cidpsso_token, self._user_id,
-                                    self._country_code,
+                                    self._country_code, app_host=app_host,
                                     idfa=self._idfa, idfv=self._idfv,
                                 )
                             )
@@ -231,13 +237,20 @@ class GeelyIntlConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         await self.async_set_unique_id(f"{self._email}:{vin}")
         self._abort_if_unique_id_configured()
 
+        # Region is derived per-vehicle from the login response, not the
+        # country code (a vehicle can live in a different region than the
+        # account). It drives the cert/control hosts and app credentials.
+        region = geely_api.region_from_login(self._login_data, vin)
+        region_cfg = region_config(region)
+
         device_id = hashlib.md5(f"ha:{self._user_id}:{vin}".encode()).hexdigest()
         cert_path, key_path = _storage_paths(self.hass, vin)
         try:
             await self.hass.async_add_executor_job(
                 lambda: geely_api.provision_user_cert(
-                    app_id=APP_ID,
-                    app_secret=APP_SECRET,
+                    app_id=region_cfg["app_id"],
+                    app_secret=region_cfg["app_secret"],
+                    cert_host=region_cfg["cert_host"],
                     user_id=self._user_id,
                     cidpsso_token=self._cidpsso_token,
                     cert_out_path=cert_path,
@@ -255,6 +268,7 @@ class GeelyIntlConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             data={
                 CONF_EMAIL:              self._email,
                 CONF_COUNTRY_CODE:       self._country_code,
+                CONF_REGION:             region,
                 CONF_CIDPSSO_TOKEN:      self._cidpsso_token,
                 CONF_USER_ID:            self._user_id,
                 CONF_VIN:                vin,

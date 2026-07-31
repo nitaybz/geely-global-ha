@@ -21,7 +21,33 @@ import uuid
 from typing import Any
 from urllib.parse import parse_qsl, quote, urlparse
 
+from .const import DEFAULT_REGION, region_config
+
 _LOGGER = logging.getLogger(__name__)
+
+
+def region_from_login(login_data: dict, vin: str | None = None) -> str:
+    """Derive the vehicle's telematics region from a cidpsso login response.
+
+    Order of preference:
+      1. the `tspInfo` entry whose `vin` matches (per-vehicle region),
+      2. any `tspInfo[].serviceRegion`,
+      3. `edgeInfo.code` (the account's primary vehicle region),
+      4. DEFAULT_REGION.
+
+    Deliberately ignores `masterInfo.code`, which is the *identity* center
+    (e.g. EU) and can differ from where the vehicle actually lives.
+    """
+    tsp = login_data.get("tspInfo") or []
+    if vin:
+        for t in tsp:
+            if t.get("vin") == vin and t.get("serviceRegion"):
+                return t["serviceRegion"]
+    for t in tsp:
+        if t.get("serviceRegion"):
+            return t["serviceRegion"]
+    edge = login_data.get("edgeInfo") or {}
+    return edge.get("code") or DEFAULT_REGION
 
 
 class GeelyAuthError(Exception):
@@ -159,8 +185,7 @@ class GeelyApi:
     def __init__(
         self,
         *,
-        app_id: str,
-        app_secret: str,
+        region: str,
         user_id: str,
         vin: str,
         cidpsso_token: str,
@@ -171,8 +196,13 @@ class GeelyApi:
         cert_path: str,
         key_path: str,
     ) -> None:
-        self.app_id = app_id
-        self.app_secret = app_secret
+        cfg = region_config(region)
+        self.region = region
+        self.app_id = cfg["app_id"]
+        self.app_secret = cfg["app_secret"]
+        self.cert_host = cfg["cert_host"]
+        self.control_host = cfg["control_host"]
+        self.app_host = cfg["app_host"]
         self.user_id = user_id
         self.vin = vin
         self.cidpsso_token = cidpsso_token
@@ -271,7 +301,7 @@ class GeelyApi:
         ctx = _legacy_ctx()
         body = json.dumps({"state": str(uuid.uuid4())}).encode()
         req = urllib.request.Request(
-            "https://m-lcmsam-eu.geely.com/cidpsso/oauth2/v1/getCode",
+            f"https://{self.app_host}/cidpsso/oauth2/v1/getCode",
             data=body, method="POST",
             headers={
                 "token": self.cidpsso_token,
@@ -292,7 +322,7 @@ class GeelyApi:
         ac = self._get_access_code()
         body = json.dumps({"authCode": ac}).encode()
         status, resp = self._mtls_send(
-            "apis.ecloudeu.com", "POST",
+            self.control_host, "POST",
             "/auth/account/session/secure?identity_type=geelyos",
             body,
         )
@@ -329,7 +359,7 @@ class GeelyApi:
         in), auto-refresh the JWT once and retry. Only escalates to
         GeelyAuthError when the cidpsso token itself has been revoked."""
         status, resp = self._mtls_send(
-            "apis.ecloudeu.com", method, path, body,
+            self.control_host, method, path, body,
             extra_headers=self._headers_with_jwt(),
         )
         j = json.loads(resp)
@@ -344,7 +374,7 @@ class GeelyApi:
                 # cidpsso token also dead - needs reauth
                 raise
             status, resp = self._mtls_send(
-                "apis.ecloudeu.com", method, path, body,
+                self.control_host, method, path, body,
                 extra_headers=self._headers_with_jwt(),
             )
             j = json.loads(resp)
@@ -383,7 +413,7 @@ class GeelyApi:
         }
         path = f"/remote-control/vehicle/telematics/{self.vin}"
         status, resp = self._mtls_send(
-            "apis.ecloudeu.com", "PUT", path, json.dumps(body).encode(),
+            self.control_host, "PUT", path, json.dumps(body).encode(),
             extra_headers=self._headers_with_jwt(),
         )
         return json.loads(resp)
@@ -391,7 +421,7 @@ class GeelyApi:
     def vehicle_status_state(self) -> dict:
         path = f"/remote-control/vehicle/status/state/{self.vin}"
         status, resp = self._mtls_send(
-            "apis.ecloudeu.com", "GET", path, b"",
+            self.control_host, "GET", path, b"",
             extra_headers=self._headers_with_jwt(),
         )
         return json.loads(resp)
@@ -399,7 +429,7 @@ class GeelyApi:
     def charging_reservation(self) -> dict:
         path = f"/remote-control/charging/reservation/{self.vin}"
         status, resp = self._mtls_send(
-            "apis.ecloudeu.com", "GET", path, b"",
+            self.control_host, "GET", path, b"",
             extra_headers=self._headers_with_jwt(),
         )
         return json.loads(resp)
@@ -415,7 +445,7 @@ class GeelyApi:
         """
         path = f"/charge-server/ecarx_charge_set/{self.vin}?bizType={biz_type}"
         status, resp = self._mtls_send(
-            "apis.ecloudeu.com", "GET", path, b"",
+            self.control_host, "GET", path, b"",
             extra_headers=self._headers_with_jwt(),
         )
         return json.loads(resp)
@@ -454,7 +484,7 @@ class GeelyApi:
         body_bytes = json.dumps(body, separators=(",", ":")).encode()
         path = f"/charge-server/ecarx_charge_set/{self.vin}"
         status, resp = self._mtls_send(
-            "apis.ecloudeu.com", "POST", path, body_bytes,
+            self.control_host, "POST", path, body_bytes,
             extra_headers=self._headers_with_jwt(),
         )
         j = json.loads(resp)
@@ -484,7 +514,7 @@ class GeelyApi:
         body = json.dumps(body_dict, separators=(",", ":")).encode()
         path = f"/remote-control/vehicle/telematics/{self.vin}"
         status, resp = self._mtls_send(
-            "apis.ecloudeu.com", "PUT", path, body,
+            self.control_host, "PUT", path, body,
             extra_headers=self._headers_with_jwt(),
         )
         j = json.loads(resp)
@@ -523,7 +553,7 @@ class GeelyApi:
         body_bytes = json.dumps(body, separators=(",", ":")).encode()
         path = f"/charge-server/ecarx_charge_set/{self.vin}"
         status, resp = self._mtls_send(
-            "apis.ecloudeu.com", "POST", path, body_bytes,
+            self.control_host, "POST", path, body_bytes,
             extra_headers=self._headers_with_jwt(),
         )
         j = json.loads(resp)
@@ -546,7 +576,7 @@ class GeelyApi:
             "?pageSize=2000&pageIndex=1&vehicleType=0&sortField=&direction="
         )
         status, resp = self._mtls_send(
-            "apis.ecloudeu.com", "GET", path, b"",
+            self.control_host, "GET", path, b"",
             extra_headers=self._headers_with_jwt(),
         )
         try:
@@ -558,9 +588,9 @@ class GeelyApi:
 
 # ---------- Cert provisioning (one-time during config_flow) ----------
 
-def _sign_request_for_api_ecloudeu(app_id: str, app_secret: str,
+def _sign_cert_request(app_id: str, app_secret: str,
                                     method: str, url: str, body: bytes) -> dict:
-    """Standalone signer for /auth/cert/* on api.ecloudeu.com (no mTLS)."""
+    """Standalone signer for /auth/cert/* (single-auth, no mTLS)."""
     p = urlparse(url)
     nonce = _make_nonce()
     ts_ms = int(time.time() * 1000)
@@ -588,8 +618,8 @@ def _sign_request_for_api_ecloudeu(app_id: str, app_secret: str,
     }
 
 
-def provision_user_cert(*, app_id: str, app_secret: str, user_id: str,
-                         cidpsso_token: str, cert_out_path: str,
+def provision_user_cert(*, app_id: str, app_secret: str, cert_host: str,
+                         user_id: str, cidpsso_token: str, cert_out_path: str,
                          key_out_path: str) -> tuple[str, str]:
     """Generate EC P-256 keypair + CSR, send through /auth/cert/info + /file,
     save signed cert + key. Returns (cert_path, key_path)."""
@@ -618,12 +648,12 @@ def provision_user_cert(*, app_id: str, app_secret: str, user_id: str,
 
     # 2. POST /auth/cert/info → checkCode
     body = json.dumps({"checkValue": user_id}, separators=(',', ':')).encode()
-    headers = _sign_request_for_api_ecloudeu(
+    headers = _sign_cert_request(
         app_id, app_secret, "POST",
-        "https://api.ecloudeu.com/auth/cert/info", body)
+        f"https://{cert_host}/auth/cert/info", body)
     ctx = _legacy_ctx()
     req = urllib.request.Request(
-        "https://api.ecloudeu.com/auth/cert/info",
+        f"https://{cert_host}/auth/cert/info",
         data=body, method="POST", headers=headers)
     with urllib.request.urlopen(req, context=ctx, timeout=20) as resp:
         j = json.loads(resp.read())
@@ -632,7 +662,7 @@ def provision_user_cert(*, app_id: str, app_secret: str, user_id: str,
     check_code = j["data"]["checkCode"]
 
     # 3. POST /auth/cert/file → signed cert
-    device_for_cert = hashlib.sha256(f"{user_id}_geely_ex5_ha".encode()).hexdigest()
+    device_for_cert = hashlib.sha256(f"{user_id}_home_assistant_ha".encode()).hexdigest()
     body = json.dumps({
         "csr": csr_pem,
         "identityType": "geelyos",
@@ -640,11 +670,11 @@ def provision_user_cert(*, app_id: str, app_secret: str, user_id: str,
         "deviceId": device_for_cert,
         "checkCode": check_code,
     }, separators=(',', ':')).encode()
-    headers = _sign_request_for_api_ecloudeu(
+    headers = _sign_cert_request(
         app_id, app_secret, "POST",
-        "https://api.ecloudeu.com/auth/cert/file", body)
+        f"https://{cert_host}/auth/cert/file", body)
     req = urllib.request.Request(
-        "https://api.ecloudeu.com/auth/cert/file",
+        f"https://{cert_host}/auth/cert/file",
         data=body, method="POST", headers=headers)
     with urllib.request.urlopen(req, context=ctx, timeout=30) as resp:
         j = json.loads(resp.read())
@@ -665,8 +695,9 @@ def provision_user_cert(*, app_id: str, app_secret: str, user_id: str,
 
 # ---------- cidpsso login (for config_flow) ----------
 
+# The login/OTP host is global and region-independent. The per-region app_host
+# (cidpcar vehicle list) is resolved from the region config instead.
 LOGIN_HOST = "https://access-app-global.geely.com"
-APP_HOST   = "https://m-lcmsam-eu.geely.com"
 
 
 def _ios_headers(token: str | None = None, user_id: str | None = None,
@@ -803,12 +834,14 @@ def cidpsso_login(email: str, otp: str, country_code: str = "IL", *,
 
 
 def list_vehicles(cidpsso_token: str, user_id: str | None = None,
-                  country_code: str = "IL", *,
+                  country_code: str = "IL", *, app_host: str | None = None,
                   idfa: str | None = None, idfv: str | None = None) -> list[dict]:
     """List vehicles for the logged-in account. Returns the `data` list
-    from /cidpcar/vehicleOwner/v2/controlCars."""
+    from /cidpcar/vehicleOwner/v2/controlCars. `app_host` is the region's
+    cidpcar host; falls back to the default region when omitted."""
+    host = app_host or region_config(DEFAULT_REGION)["app_host"]
     s = _legacy_session()
-    r = s.get(f"{APP_HOST}/cidpcar/vehicleOwner/v2/controlCars",
+    r = s.get(f"https://{host}/cidpcar/vehicleOwner/v2/controlCars",
               headers=_ios_headers(token=cidpsso_token, user_id=user_id,
                                    country_code=country_code,
                                    idfa=idfa, idfv=idfv),
