@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import socket
+import time
 from datetime import timedelta
 
 import voluptuous as vol
@@ -24,6 +25,7 @@ from .const import (
     CONF_CIDPSSO_TOKEN,
     CONF_DEVICE_ID,
     CONF_KEY_PATH,
+    CONF_TOKEN_ISSUED_AT,
     CONF_USER_ID,
     CONF_VEHICLE_MODEL_CODE,
     CONF_VEHICLE_NICKNAME,
@@ -247,6 +249,54 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # ~3min of sustained failure before HA reports unavailable.
     _FAILURE_TOLERANCE = 2
     fail_state = {"consecutive": 0}
+    # Set once we've notified for the current outage, so we don't spam a new
+    # persistent notification on every 90s poll while auth stays broken.
+    auth_state = {"notified": False, "cleared": False}
+
+    def _on_auth_failed(e: GeelyAuthError) -> ConfigEntryAuthFailed:
+        """Log diagnostics for the recurring session-death investigation and
+        raise a one-off persistent notification, then hand HA a
+        ConfigEntryAuthFailed so its normal reauth flow starts."""
+        issued = entry.data.get(CONF_TOKEN_ISSUED_AT)
+        age_txt = "unknown (token predates diagnostics)"
+        if issued:
+            age_h = (time.time() - issued) / 3600.0
+            age_txt = f"{age_h:.1f} h ({age_h / 24:.1f} days)"
+        _LOGGER.error(
+            "GEELY AUTH LOST: Geely rejected our login session. "
+            "Token age since last login: %s. JWT refreshes this run: %d "
+            "(last %s). Rejection: %s",
+            age_txt, api.jwt_refresh_count,
+            (time.strftime("%Y-%m-%d %H:%M:%S",
+                           time.localtime(api.last_jwt_refresh_ts))
+             if api.last_jwt_refresh_ts else "never"),
+            e,
+        )
+        auth_state["cleared"] = False
+        if not auth_state["notified"]:
+            auth_state["notified"] = True
+            nick = entry.data.get(CONF_VEHICLE_NICKNAME) or "Geely"
+            try:
+                hass.async_create_task(
+                    hass.services.async_call(
+                        "persistent_notification", "create",
+                        {
+                            "notification_id": f"{DOMAIN}_auth_{entry.entry_id}",
+                            "title": f"{nick}: sign-in expired",
+                            "message": (
+                                "Home Assistant lost its Geely login and can no "
+                                "longer reach the car. Go to Settings → Devices "
+                                "& Services → Geely and re-enter the emailed "
+                                f"code to reconnect.\n\n(Session lasted {age_txt} "
+                                "since the last login.)"
+                            ),
+                        },
+                        blocking=False,
+                    )
+                )
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("could not raise auth persistent notification")
+        return ConfigEntryAuthFailed(str(e))
 
     async def _async_update():
         # Best-effort: ask the car to upload fresh GPS before we read status.
@@ -256,7 +306,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         try:
             await _call_with_retry(api.request_position_refresh)
         except GeelyAuthError as e:
-            raise ConfigEntryAuthFailed(str(e)) from e
+            raise _on_auth_failed(e) from e
         except Exception as e:  # noqa: BLE001
             _LOGGER.debug("position-refresh PAI non-fatal failure: %s", e)
         try:
@@ -265,7 +315,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             # Trigger HA's reauth flow - the user will see a "Reconfigure"
             # prompt. Most common cause: the iPhone (or another client) re-
             # authenticated and the server invalidated our cidpsso token.
-            raise ConfigEntryAuthFailed(str(e)) from e
+            raise _on_auth_failed(e) from e
         except Exception as e:  # noqa: BLE001
             fail_state["consecutive"] += 1
             prev = coordinator.data if coordinator is not None else None
@@ -295,7 +345,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             if state_resp.get("code") in _SUCCESS_CODES and isinstance(state_resp.get("data"), dict):
                 data["_state"] = state_resp["data"]
         except GeelyAuthError as e:
-            raise ConfigEntryAuthFailed(str(e)) from e
+            raise _on_auth_failed(e) from e
         except Exception as e:  # noqa: BLE001
             _LOGGER.debug("vehicle_status_state non-fatal failure: %s", e)
         # Pull scheduled-charging state (charge-server bizType=6). Has
@@ -308,6 +358,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         except Exception as e:  # noqa: BLE001
             _LOGGER.debug("scheduled-charging fetch non-fatal failure: %s", e)
         fail_state["consecutive"] = 0
+        auth_state["notified"] = False
+        # Auth is healthy again: clear any lingering "sign-in expired" notice
+        # once (idempotent, no-op if none is showing).
+        if not auth_state["cleared"]:
+            auth_state["cleared"] = True
+            try:
+                hass.async_create_task(
+                    hass.services.async_call(
+                        "persistent_notification", "dismiss",
+                        {"notification_id": f"{DOMAIN}_auth_{entry.entry_id}"},
+                        blocking=False,
+                    )
+                )
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("could not dismiss auth persistent notification")
         return data
 
     coordinator = DataUpdateCoordinator(

@@ -15,6 +15,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import time
 from typing import Any
 
 import voluptuous as vol
@@ -34,6 +35,7 @@ from .const import (
     CONF_DEVICE_IDFV,
     CONF_EMAIL,
     CONF_KEY_PATH,
+    CONF_TOKEN_ISSUED_AT,
     CONF_USER_ID,
     CONF_VEHICLE_COLOR,
     CONF_VEHICLE_MODEL_CODE,
@@ -224,6 +226,7 @@ class GeelyIntlConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             new_data[CONF_USER_ID] = self._user_id
             new_data[CONF_DEVICE_IDFA] = self._idfa
             new_data[CONF_DEVICE_IDFV] = self._idfv
+            new_data[CONF_TOKEN_ISSUED_AT] = int(time.time())
             self.hass.config_entries.async_update_entry(self._reauth_entry, data=new_data)
             await self.hass.config_entries.async_reload(self._reauth_entry.entry_id)
             return self.async_abort(reason="reauth_successful")
@@ -256,6 +259,7 @@ class GeelyIntlConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 CONF_EMAIL:              self._email,
                 CONF_COUNTRY_CODE:       self._country_code,
                 CONF_CIDPSSO_TOKEN:      self._cidpsso_token,
+                CONF_TOKEN_ISSUED_AT:    int(time.time()),
                 CONF_USER_ID:            self._user_id,
                 CONF_VIN:                vin,
                 CONF_DEVICE_ID:          device_id,

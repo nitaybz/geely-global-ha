@@ -36,6 +36,10 @@ CONF_VEHICLE_SERIES     = "vehicle_series"
 CONF_VEHICLE_MODEL_CODE = "vehicle_model_code"
 CONF_VEHICLE_COLOR      = "vehicle_color"
 CONF_VEHICLE_POWER_TYPE = "vehicle_power_type"
+# Epoch seconds when the cidpsso login token was last (re)issued. Used only
+# for diagnostics: on an auth failure we log how long the token survived, to
+# tell a fixed server-side lifetime apart from other invalidation causes.
+CONF_TOKEN_ISSUED_AT    = "token_issued_at"
 
 DEFAULT_COUNTRY_CODE = "IL"
 

@@ -186,6 +186,13 @@ class GeelyApi:
         self._jwt: str | None = None
         self._jwt_uid: str | None = None
         self._jwt_exp: int = 0   # unix ms
+        # Diagnostics for the "session dies every few weeks" investigation.
+        # Counts how many times we minted a fresh JWT from the cidpsso token
+        # (i.e. hit getCode + session/secure) during this process' lifetime,
+        # and when we last did so. On an auth rejection the coordinator logs
+        # these so we can tell a fixed token TTL apart from session churn.
+        self.jwt_refresh_count: int = 0
+        self.last_jwt_refresh_ts: float = 0.0
 
     # ---- low-level helpers ----
 
@@ -305,6 +312,15 @@ class GeelyApi:
         self._jwt = d["accessToken"]
         self._jwt_uid = d["userId"]
         self._jwt_exp = int(time.time()) + int(d.get("expiresIn", 7200))
+        now = time.time()
+        gap = now - self.last_jwt_refresh_ts if self.last_jwt_refresh_ts else -1
+        self.jwt_refresh_count += 1
+        self.last_jwt_refresh_ts = now
+        _LOGGER.info(
+            "JWT refreshed from cidpsso token (refresh #%d this run, "
+            "%.0fs since previous, expiresIn=%ss)",
+            self.jwt_refresh_count, gap, d.get("expiresIn", "?"),
+        )
         return d
 
     def _ensure_jwt(self) -> str:
