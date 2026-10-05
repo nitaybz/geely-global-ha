@@ -19,17 +19,40 @@ import json
 import os
 import sys
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-API_PATH = os.path.join(HERE, "..", "custom_components", "geely_global", "api.py")
+import types
 
-spec = importlib.util.spec_from_file_location("geely_api_under_test", API_PATH)
-api = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(api)
+HERE = os.path.dirname(os.path.abspath(__file__))
+_PKG_DIR = os.path.join(HERE, "..", "custom_components", "geely_global")
+
+
+def _load_api():
+    """Load api.py standalone. It is HA-free but imports `.const`, so we
+    register a minimal `geely_global` package (without running __init__.py,
+    which pulls in Home Assistant) and load const + api under it."""
+    pkg = "geely_global"
+    if pkg not in sys.modules:
+        m = types.ModuleType(pkg)
+        m.__path__ = [_PKG_DIR]
+        sys.modules[pkg] = m
+
+    def _mod(name):
+        spec = importlib.util.spec_from_file_location(
+            f"{pkg}.{name}", os.path.join(_PKG_DIR, name + ".py"))
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = mod
+        spec.loader.exec_module(mod)
+        return mod
+
+    _mod("const")
+    return _mod("api")
+
+
+api = _load_api()
 
 
 def _make_api():
     return api.GeelyApi(
-        app_id="x", app_secret="x", user_id="u", vin="VINTEST00000000",
+        region="EU", user_id="u", vin="VINTEST00000000",
         cidpsso_token="t", client_id="c", vehicle_series="s",
         vehicle_model="m", device_id="d", cert_path="/dev/null",
         key_path="/dev/null",
