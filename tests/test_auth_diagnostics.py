@@ -57,11 +57,13 @@ def _make_api():
 
 
 def _stub_refresh(client):
-    """Make refresh_jwt succeed without any network I/O."""
+    """Make refresh_jwt succeed without any network I/O. Mirrors the real
+    session/secure response, which includes a refreshToken."""
     client._get_access_code = lambda: "accesscode123"
     client._mtls_send = lambda host, method, path, body, extra_headers=None: (
         200,
-        b'{"code":"1000","data":{"accessToken":"jwt","userId":"u","expiresIn":7200}}',
+        b'{"code":"1000","data":{"accessToken":"jwt","userId":"u",'
+        b'"expiresIn":7200,"refreshToken":"rtok","idToken":"idt","tcToken":"tct"}}',
     )
 
 
@@ -85,7 +87,35 @@ def test_refresh_increments_counter_and_stamps_time():
     print("PASS test_refresh_increments_counter_and_stamps_time")
 
 
+def test_refresh_jwt_captures_refresh_token():
+    """The renewal credentials from session/secure must be kept, not discarded
+    - the refresh_token is what a future cidpsso-independent renewal needs."""
+    client = _make_api()
+    _stub_refresh(client)
+    assert client.refresh_token is None, client.refresh_token
+    client.refresh_jwt()
+    assert client.refresh_token == "rtok", client.refresh_token
+    assert client.id_token == "idt", client.id_token
+    assert client.tc_token == "tct", client.tc_token
+    print("PASS test_refresh_jwt_captures_refresh_token")
+
+
+def test_token_refresh_gated_off_by_default():
+    """refresh_session_via_token must be inert while the endpoint shape is
+    unknown, so the integration behaves exactly as before."""
+    client = _make_api()
+    client.refresh_token = "rtok"
+    # Must not touch the network when the feature gate is off.
+    def _boom(*a, **k):
+        raise AssertionError("refresh_session_via_token hit the network while gated off")
+    client._mtls_send = _boom
+    assert client.refresh_session_via_token() is False
+    print("PASS test_token_refresh_gated_off_by_default")
+
+
 if __name__ == "__main__":
     test_counter_starts_at_zero()
     test_refresh_increments_counter_and_stamps_time()
+    test_refresh_jwt_captures_refresh_token()
+    test_token_refresh_gated_off_by_default()
     print("\nAll auth-diagnostics tests passed.")

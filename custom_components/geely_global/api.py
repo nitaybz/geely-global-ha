@@ -79,6 +79,11 @@ class GeelyControlError(Exception):
 
 # Error codes the Geely gateway returns when our session is invalid.
 # Distilled from observed responses + poc/geely_client.py.
+# Feature gate for the cidpsso-independent session renewal (refresh_token ->
+# POST /auth/account/token). OFF until the exact request body is captured from
+# the app; see refresh_session_via_token() and docs/SILENT_REAUTH_CAPTURE.md.
+_TRY_TOKEN_REFRESH = False
+
 _AUTH_FAILURE_CODES: set = {
     # cidpsso/cidpcar token rejected
     60000000, 60000001, 60000110,
@@ -223,6 +228,15 @@ class GeelyApi:
         # these so we can tell a fixed token TTL apart from session churn.
         self.jwt_refresh_count: int = 0
         self.last_jwt_refresh_ts: float = 0.0
+        # Tokens returned by /auth/account/session/secure that we used to
+        # throw away. The refresh_token is the credential the phone app uses
+        # to renew its session WITHOUT re-logging-in (the mechanism behind
+        # "the app never logs out"). Kept here so refresh_session_via_token()
+        # can use it once the exact renew call is captured (see
+        # docs/SILENT_REAUTH_CAPTURE.md).
+        self.refresh_token: str | None = None
+        self.id_token: str | None = None
+        self.tc_token: str | None = None
 
     # ---- low-level helpers ----
 
@@ -342,6 +356,10 @@ class GeelyApi:
         self._jwt = d["accessToken"]
         self._jwt_uid = d["userId"]
         self._jwt_exp = int(time.time()) + int(d.get("expiresIn", 7200))
+        # Keep the renewal credentials (previously discarded).
+        self.refresh_token = d.get("refreshToken") or self.refresh_token
+        self.id_token = d.get("idToken") or self.id_token
+        self.tc_token = d.get("tcToken") or self.tc_token
         now = time.time()
         gap = now - self.last_jwt_refresh_ts if self.last_jwt_refresh_ts else -1
         self.jwt_refresh_count += 1
@@ -353,9 +371,56 @@ class GeelyApi:
         )
         return d
 
+    def refresh_session_via_token(self) -> bool:
+        """Renew the apis.ecloudeu session from the stored refresh_token,
+        WITHOUT the cidpsso login token. This is the path that would end the
+        periodic sign-in expiry: the cidpsso token dies after ~10 days, but if
+        the refresh_token lets us re-mint the session independently (as the
+        phone app does), Home Assistant never needs a new email code.
+
+        STATUS: not yet usable. Live probing (2026-10-05) found the endpoint
+        `POST /auth/account/token` on the control host EXISTS and is JSON-only,
+        but rejects every body shape we could guess with the opaque business
+        error `code 8500`. The exact request body must be captured from the
+        app (see docs/SILENT_REAUTH_CAPTURE.md). Until then this is gated OFF
+        by _TRY_TOKEN_REFRESH, so the integration behaves exactly as before.
+
+        When the capture reveals the body: fill in `body` below, flip
+        _TRY_TOKEN_REFRESH to True, and parse the returned accessToken /
+        refreshToken into self._jwt / self.refresh_token. Returns True on a
+        successful renew, False to fall back to the cidpsso path."""
+        if not _TRY_TOKEN_REFRESH or not self.refresh_token:
+            return False
+        body = json.dumps({"refreshToken": self.refresh_token}).encode()  # TODO: exact shape from capture
+        try:
+            _status, resp = self._mtls_send(
+                self.control_host, "POST", "/auth/account/token", body,
+                extra_headers={
+                    "X-CLIENT-ID": self.client_id,
+                    "X-VEHICLE-IDENTIFIER": self.vin,
+                },
+            )
+            j = json.loads(resp)
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.debug("token-refresh attempt failed: %s", e)
+            return False
+        d = j.get("data") if isinstance(j.get("data"), dict) else None
+        if j.get("code") in (1000, "1000") and d and d.get("accessToken"):
+            self._jwt = d["accessToken"]
+            self._jwt_uid = d.get("userId", self._jwt_uid)
+            self._jwt_exp = int(time.time()) + int(d.get("expiresIn", 7200))
+            self.refresh_token = d.get("refreshToken") or self.refresh_token
+            _LOGGER.info("session renewed via refresh_token (no cidpsso login)")
+            return True
+        _LOGGER.debug("token-refresh rejected: code=%s", j.get("code"))
+        return False
+
     def _ensure_jwt(self) -> str:
         if not self._jwt or time.time() > self._jwt_exp - 60:
-            self.refresh_jwt()
+            # Prefer the cidpsso-independent renewal when available; fall back
+            # to the cidpsso accessCode path (current default behaviour).
+            if not self.refresh_session_via_token():
+                self.refresh_jwt()
         return self._jwt   # type: ignore[return-value]
 
     def _headers_with_jwt(self) -> dict:
